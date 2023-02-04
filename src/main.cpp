@@ -4,7 +4,7 @@
  * @Autor: ChenYuxiang
  * @Date: 2023-01-08 23:27:43
  * @LastEditors: ChenYuxiang
- * @LastEditTime: 2023-01-11 21:58:08
+ * @LastEditTime: 2023-02-04 22:29:42
  */
 #include <Arduino.h>
 #include "TFT_eSPI.h"
@@ -26,6 +26,8 @@
 #define DISPLAY_Y (60)
 #define DISPLAY_LINE (3)
 #define GPIO_INT GPIO_NUM_13
+
+#define DEBUG Serial
 
 /*---------------VAR DEFINE-----------------*/
 MAX_Data maxData;
@@ -68,24 +70,24 @@ void serialPrint(void *p)
   int SemValue = 0;
   TickType_t curTime = xTaskGetTickCount();
 
-  Serial.begin(115200);
-  Serial.print("GoTo Measuring\r\n");
+  DEBUG.begin(115200);
+  DEBUG.print("GoTo Measuring\r\n");
 
   while (1)
   {
-    Serial.println(F("SpO2\tHR\tRatio\tCorr\tisF\tdOK"));
-    Serial.print(maxData.spo2);
-    Serial.print("\t");
-    Serial.print(maxData.heartrate, DEC);
-    Serial.print("\t");
-    Serial.print(maxData.ratio);
-    Serial.print("\t");
-    Serial.print(maxData.correl);
-    Serial.print("\t");
-    Serial.print(maxData.isFinger);
-    Serial.print("\t");
-    Serial.print(maxData.dataOK);
-    Serial.println("");
+    DEBUG.println(F("SpO2\tHR\tRatio\tCorr\tisF\tdOK"));
+    DEBUG.print(maxData.spo2);
+    DEBUG.print("\t");
+    DEBUG.print(maxData.heartrate, DEC);
+    DEBUG.print("\t");
+    DEBUG.print(maxData.ratio);
+    DEBUG.print("\t");
+    DEBUG.print(maxData.correl);
+    DEBUG.print("\t");
+    DEBUG.print(maxData.isFinger);
+    DEBUG.print("\t");
+    DEBUG.print(maxData.dataOK);
+    DEBUG.println("");
 
     vTaskDelayUntil(&curTime, 1000);
   }
@@ -93,11 +95,6 @@ void serialPrint(void *p)
 
 void lcdShowData(void *p)
 {
-  // tft.setFreeFont(&FreeSerif9pt7b);           // OK
-  // tft.setFreeFont(&FreeSerifBoldItalic9pt7b); // OK
-  // tft.setFreeFont(&FreeSans9pt7b);
-  // tft.setFreeFont(&FreeSansOblique9pt7b);
-
   int GFXStep = 16;
   int SemValue = 0;
 
@@ -114,36 +111,34 @@ void lcdShowData(void *p)
 
   while (1)
   {
-    vTaskDelay(330);
+    // vTaskDelay(100);
 
-    SemValue = ulTaskNotifyTake(true, OUT_TICKS);
-
-    if (SemValue && (maxData.usedFlag == false))
+    if (ulTaskNotifyTake(true, OUT_TICKS))
     {
-
       if (maxData.isFinger == false)
       {
         showNoFinger(GFXStep);
       }
-      else if (maxData.dataOK && (maxData.usedFlag == false))
+      else if (maxData.dataOK == false && maxData.isFinger == true)
+      {
+        showFinger(GFXStep);
+      }
+
+      if (maxData.usedFlag == false && flushLcd == false && maxData.dataOK == true)
       {
         showValue(GFXStep, false);
-        flushLcd = false;
+
         if (xTimerIsTimerActive(timer0Hand) != pdFALSE)
         {
           xTimerStop(timer0Hand, OUT_TICKS);
         }
       }
-      else 
-      {
-        showFinger(GFXStep);
-      }
-    }
 
-    if (SemValue && flushLcd)
-    {
-      showValue(GFXStep, flushLcd);
-      flushLcd = false;
+      if (flushLcd)
+      {
+        showValue(GFXStep, flushLcd);
+        flushLcd = false;
+      }
     }
   }
 }
@@ -276,7 +271,7 @@ void takeMax30102Value(void *p)
   maxData.isFinger = true;
 
   Wire.begin();
-  IICScan();
+  // IICScan();
 
   pinMode(oxiInt, INPUT);
   maxim_max30102_reset();
@@ -285,7 +280,6 @@ void takeMax30102Value(void *p)
 
   while (1)
   {
-
     for (iter = 0; iter < BUFFER_SIZE; iter++)
     {
       while (digitalRead(oxiInt) == 1)
@@ -321,6 +315,8 @@ void takeMax30102Value(void *p)
         }
       }
 
+      vTaskDelay(pdMS_TO_TICKS(1000 / FS));
+
       *(aun_ir_buffer + iter) = aun_ir;
       *(aun_red_buffer + iter) = aun_red;
     }
@@ -336,11 +332,8 @@ void takeMax30102Value(void *p)
       maxData.usedFlag = false;
       maxData.dataOK = true;
       xTaskNotifyGive(lcdShowHand);
+      spo2_ok = hr_ok = false;
     }
-
-    xTaskNotifyGive(serialPrintHand);
-
-    vTaskDelay(10);
   }
 }
 
